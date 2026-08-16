@@ -1,0 +1,2204 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>発表タイマー | Presentation Timer</title>
+  <meta name="description" content="学会・研究発表・カンファレンス用の高視認性プレゼンテーションタイマー。Web Audio APIによる本格卓上ベル音、ベルの自由な追加・削除・編集、カウントアップ/ダウン対応。">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@700&family=BIZ+UDPMincho:wght@700&display=swap');
+
+    /* ==========================================================================
+       CSS Variables & Design System
+       ========================================================================== */
+    :root {
+      --bg-primary: #000000;
+      --bg-secondary: #090b10;
+      --bg-card: rgba(22, 27, 34, 0.85);
+      --bg-card-hover: rgba(33, 38, 45, 0.95);
+      --bg-glass: rgba(18, 22, 28, 0.75);
+      
+      --text-primary: #ffffff;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      
+      --accent-blue: #38bdf8;
+      --accent-green: #22c55e;
+      --accent-yellow: #facc15;
+      --accent-magenta: #f43f5e;
+      --accent-red: #ef4444;
+      --accent-purple: #a855f7;
+      
+      --border-subtle: rgba(255, 255, 255, 0.12);
+      --border-focus: rgba(56, 189, 248, 0.6);
+      
+      --font-mono: "SF Mono", "Roboto Mono", "Menlo", "Consolas", monospace;
+      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      
+      --transition-fast: 0.15s ease;
+      --transition-normal: 0.25s ease;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      background-color: var(--bg-primary);
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      overflow: hidden;
+    }
+
+    /* ==========================================================================
+       App Container & Layout
+       ========================================================================== */
+    .app-container {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      width: 100vw;
+      position: relative;
+      background: radial-gradient(circle at 50% 25%, #0c1018 0%, #000000 90%);
+    }
+
+    /* Top Navigation Bar */
+    .header-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 24px;
+      z-index: 10;
+      opacity: 0.85;
+      transition: opacity var(--transition-normal);
+      flex-shrink: 0;
+    }
+    .header-bar:hover {
+      opacity: 1;
+    }
+
+    .app-title-area {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .app-title {
+      font-size: 1.05rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .app-badge {
+      font-size: 0.75rem;
+      padding: 3px 10px;
+      border-radius: 12px;
+      background: rgba(56, 189, 248, 0.15);
+      color: var(--accent-blue);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      font-weight: 600;
+      letter-spacing: 0.04em;
+    }
+
+    .header-controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .icon-btn {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-primary);
+      padding: 8px 14px;
+      border-radius: 8px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.85rem;
+      font-weight: 500;
+      transition: all var(--transition-fast);
+      backdrop-filter: blur(8px);
+    }
+    .icon-btn:hover {
+      background: rgba(255, 255, 255, 0.16);
+      border-color: rgba(255, 255, 255, 0.3);
+      transform: translateY(-1px);
+    }
+    .icon-btn:active {
+      transform: translateY(0);
+    }
+    .icon-btn svg {
+      width: 18px;
+      height: 18px;
+      fill: currentColor;
+    }
+
+    /* Main Timer Stage */
+    .timer-stage {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding: 0 20px;
+      position: relative;
+      z-index: 1;
+      min-height: 0;
+    }
+
+    /* Digits Display */
+    .timer-display-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 8px;
+      position: relative;
+      width: 100%;
+    }
+
+    .timer-mode-tag {
+      font-size: clamp(0.9rem, 2vw, 1.4rem);
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      margin-bottom: 2px;
+      color: var(--accent-blue);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .status-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background-color: var(--text-muted);
+      display: inline-block;
+    }
+    .status-dot.running {
+      background-color: var(--accent-green);
+      box-shadow: 0 0 14px var(--accent-green);
+      animation: pulse-dot 1.5s infinite;
+    }
+    .status-dot.paused {
+      background-color: var(--accent-yellow);
+    }
+    .status-dot.overtime {
+      background-color: var(--accent-red);
+      box-shadow: 0 0 18px var(--accent-red);
+      animation: pulse-dot 0.8s infinite;
+    }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(1.2); }
+    }
+
+    /* Enormous, Ultra-Legible Digits with Dynamic Scaling & Zero-Jitter Slot Stabilization */
+    .timer-digits {
+      display: inline-flex;
+      align-items: baseline;
+      justify-content: center;
+      font-family: "UD DigiKyoukasho N-B", "UD デジタル 教科書体 N-B", "UD DigiKyoukasho N-R", "BIZ UDPGothic", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-weight: 800;
+      font-size: calc(clamp(5.5rem, 23vw, 30rem) * var(--digit-scale, 1.25));
+      line-height: 0.85;
+      letter-spacing: 0;
+      color: #ffffff;
+      font-variant-numeric: tabular-nums;
+      font-feature-settings: "tnum" 1;
+      text-shadow: 0 0 50px rgba(255, 255, 255, 0.18), 0 4px 20px rgba(0, 0, 0, 0.9);
+      transition: color var(--transition-fast), transform 0.1s ease, font-size 0.1s ease;
+      cursor: default;
+      padding: 0 10px;
+      text-align: center;
+      max-width: 98vw;
+      user-select: none;
+    }
+    /* ==========================================================================
+       時間数字・コロンの余白＆幅 調整用パラメータ (ここをお好みで変更できます)
+       ========================================================================== */
+    :root {
+      --digit-slot-width: 0.62em;     /* 数字1文字の幅 (推奨: 0.58em 〜 0.66em) */
+      --digit-slot-margin: 0 0.02em;  /* 数字同士の間隔 (推奨: -0.02em 〜 0.02em) */
+      --colon-slot-width: 0.26em;     /* コロン(:)の幅 (推奨: 0.20em 〜 0.30em) */
+      --colon-slot-margin: 0 0.02em;  /* コロン前後の余白 (推奨: 0.00em 〜 0.05em) */
+    }
+
+    .digit-slot {
+      display: inline-block;
+      width: var(--digit-slot-width);
+      margin: var(--digit-slot-margin);
+      text-align: center;
+      flex-shrink: 0;
+      font-variant-numeric: tabular-nums;
+      font-feature-settings: "tnum" 1;
+    }
+    .digit-colon {
+      display: inline-block;
+      width: var(--colon-slot-width);
+      margin: var(--colon-slot-margin);
+      text-align: center;
+      flex-shrink: 0;
+      position: relative;
+      top: -0.04em;
+    }
+    .digit-sign {
+      display: inline-block;
+      width: 0.38em;
+      margin-right: 0.02em;
+      text-align: center;
+      flex-shrink: 0;
+    }
+
+    /* Font Family Profiles (Proportional UD & Modern Bold Series) */
+    .timer-digits[data-font="sans"] {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      font-weight: 800;
+    }
+    .timer-digits[data-font="ud-gothic"] {
+      font-family: "BIZ UDPGothic", "Hiragino UD Sans", "Hiragino UD Kaku Gothic ProN", "UD Shin Go", "Meiryo UI", sans-serif;
+      font-weight: 700;
+    }
+    .timer-digits[data-font="ud-kyokasho"] {
+      font-family: "UD DigiKyoukasho N-B", "UD デジタル 教科書体 N-B", "UD DigiKyoukasho N-R", "BIZ UDPGothic", sans-serif;
+      font-weight: 800;
+    }
+    .timer-digits[data-font="rounded"] {
+      font-family: "SF Pro Rounded", "Hiragino Maru Gothic ProN", "Arial Rounded MT Bold", "Nunito", -apple-system, sans-serif;
+      font-weight: 800;
+    }
+    .timer-digits[data-font="ud-mincho"] {
+      font-family: "BIZ UDPMincho", "Hiragino UD Mincho ProN", "Yu Mincho", serif;
+      font-weight: 700;
+    }
+    .timer-digits.overtime {
+      color: #ff4d4d;
+      text-shadow: 0 0 60px rgba(255, 77, 77, 0.5), 0 4px 20px rgba(0, 0, 0, 0.9);
+    }
+    .timer-digits.bell-pulse {
+      animation: digit-bell-ring 0.6s ease-out;
+    }
+
+    @keyframes digit-bell-ring {
+      0% { transform: scale(1); }
+      30% { transform: scale(1.04); text-shadow: 0 0 70px rgba(255, 255, 255, 0.7); }
+      100% { transform: scale(1); }
+    }
+
+    /* Prominent Progress Timeline Gauge */
+    .timeline-container {
+      width: min(92vw, 840px);
+      height: 14px;
+      background: rgba(255, 255, 255, 0.08);
+      box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.05);
+      border-radius: 10px;
+      margin: 16px 0 22px;
+      position: relative;
+      overflow: visible;
+    }
+    .timeline-bar {
+      height: 100%;
+      background-color: var(--accent-green);
+      box-shadow: 0 0 14px rgba(34, 197, 94, 0.5);
+      border-radius: 10px;
+      width: 0%;
+      transition: width 0.2s linear, background-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .timeline-marker {
+      position: absolute;
+      top: -3px;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: var(--text-secondary);
+      border: 3px solid #000000;
+      box-shadow: 0 0 6px rgba(0, 0, 0, 0.8);
+      transform: translateX(-50%);
+      transition: all var(--transition-fast);
+      cursor: default;
+      z-index: 2;
+    }
+    .timeline-marker:hover {
+      transform: translateX(-50%) scale(1.15);
+    }
+    .timeline-marker.passed {
+      background: var(--accent-green);
+      box-shadow: 0 0 10px var(--accent-green);
+    }
+
+    /* ==========================================================================
+       Bell Milestones List - Perfect Column Alignment Grid
+       ========================================================================== */
+    .bell-milestones-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 18px;
+      min-height: 80px;
+    }
+
+    .bell-milestone-row {
+      display: grid;
+      grid-template-columns: 110px 95px 1fr;
+      align-items: center;
+      width: min(92vw, 480px);
+      padding: 8px 18px;
+      border-radius: 28px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      transition: all var(--transition-fast);
+      cursor: default;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+      user-select: none;
+    }
+    .bell-milestone-row.active-next {
+      background: rgba(56, 189, 248, 0.12);
+      border-color: rgba(56, 189, 248, 0.45);
+      box-shadow: 0 0 18px rgba(56, 189, 248, 0.2);
+    }
+    .bell-milestone-row.passed {
+      opacity: 0.45;
+    }
+    .bell-milestone-row.ringing {
+      animation: milestone-ring-shake 0.5s infinite;
+      border-color: var(--accent-yellow);
+      background: rgba(250, 204, 21, 0.22);
+    }
+
+    @keyframes milestone-ring-shake {
+      0%, 100% { transform: translateY(0); }
+      25% { transform: translateY(-2px); }
+      75% { transform: translateY(2px); }
+    }
+
+    /* Column 1: Bell Icons (Aligned to the left or right consistently) */
+    .bell-icons-group {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      justify-content: flex-start;
+      padding-left: 4px;
+    }
+    .bell-icon-mini {
+      width: 20px;
+      height: 20px;
+      fill: currentColor;
+      filter: drop-shadow(0 2px 4px rgba(0,0,0,0.7));
+      transition: transform 0.2s ease;
+    }
+    .bell-milestone-row:hover .bell-icon-mini {
+      transform: scale(1.18);
+    }
+
+    /* Column 2: Timestamp (Fixed Column Alignment) */
+    .bell-time-label {
+      font-family: var(--font-mono);
+      font-size: 1.25rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-align: left;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Column 3: Label Text (Fixed Column Alignment) */
+    .bell-custom-label {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-align: left;
+      padding-left: 6px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* Bottom Control Bar */
+    .bottom-control-bar {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 16px;
+      padding: 16px 20px 28px;
+      z-index: 10;
+      position: relative;
+      flex-shrink: 0;
+    }
+
+    .btn {
+      font-family: var(--font-sans);
+      font-size: 1.05rem;
+      font-weight: 600;
+      padding: 14px 28px;
+      border-radius: 12px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      border: none;
+      transition: all var(--transition-fast);
+      box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+      min-width: 130px;
+    }
+
+    .btn-start {
+      background: #ffffff;
+      color: #000000;
+    }
+    .btn-start:hover {
+      background: #f1f5f9;
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(255, 255, 255, 0.25);
+    }
+    .btn-start.is-running {
+      background: #f59e0b;
+      color: #ffffff;
+    }
+    .btn-start.is-running:hover {
+      background: #d97706;
+      box-shadow: 0 6px 20px rgba(245, 158, 11, 0.35);
+    }
+
+    .btn-bell {
+      background: #27272a;
+      color: #ffffff;
+      border: 1px solid var(--border-subtle);
+      position: relative;
+      overflow: hidden;
+    }
+    .btn-bell:hover {
+      background: #3f3f46;
+      border-color: rgba(255, 255, 255, 0.3);
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(255, 255, 255, 0.15);
+    }
+    .btn-bell.struck {
+      animation: bell-bounce 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+    @keyframes bell-bounce {
+      0% { transform: scale(1); }
+      40% { transform: scale(0.92); }
+      70% { transform: scale(1.06); }
+      100% { transform: scale(1); }
+    }
+
+    .btn-reset {
+      background: rgba(255, 255, 255, 0.1);
+      color: #ffffff;
+      border: 1px solid var(--border-subtle);
+    }
+    .btn-reset:hover {
+      background: rgba(255, 255, 255, 0.18);
+      border-color: rgba(255, 255, 255, 0.3);
+      transform: translateY(-2px);
+    }
+
+    .btn:active {
+      transform: translateY(0) !important;
+    }
+
+    /* Screen Flash Overlay */
+    .screen-flash-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(255, 255, 255, 0.35);
+      pointer-events: none;
+      opacity: 0;
+      z-index: 100;
+      transition: opacity 0.08s ease-out;
+    }
+    .screen-flash-overlay.flashing {
+      opacity: 1;
+    }
+
+    /* ==========================================================================
+       Modal / Dialogs & Settings Panel
+       ========================================================================== */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity var(--transition-normal);
+      padding: 16px;
+    }
+    .modal-backdrop.open {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .modal-card {
+      background: #12161f;
+      border: 1px solid var(--border-subtle);
+      border-radius: 16px;
+      width: min(94vw, 700px);
+      max-height: 90vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.1);
+      transform: scale(0.95);
+      transition: transform var(--transition-normal);
+      overflow: hidden;
+    }
+    .modal-backdrop.open .modal-card {
+      transform: scale(1);
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 18px 24px;
+      border-bottom: 1px solid var(--border-subtle);
+      background: rgba(255, 255, 255, 0.02);
+    }
+    .modal-header h2 {
+      font-size: 1.25rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: #ffffff;
+    }
+    .modal-close-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 1.5rem;
+      line-height: 1;
+      padding: 4px;
+      border-radius: 6px;
+      transition: color var(--transition-fast);
+    }
+    .modal-close-btn:hover {
+      color: #ffffff;
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .modal-body {
+      padding: 20px 24px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    .setting-section {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .setting-title {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: var(--accent-blue);
+      letter-spacing: 0.03em;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .form-label {
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+      font-weight: 500;
+    }
+
+    .select-input, .text-input, .number-input {
+      background: #1c212c;
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      padding: 10px 14px;
+      color: #ffffff;
+      font-family: var(--font-sans);
+      font-size: 0.95rem;
+      outline: none;
+      transition: border-color var(--transition-fast);
+      width: 100%;
+    }
+    .select-input:focus, .text-input:focus, .number-input:focus {
+      border-color: var(--accent-blue);
+      box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+    }
+
+    .radio-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .radio-card {
+      border: 1px solid var(--border-subtle);
+      background: #181d26;
+      border-radius: 8px;
+      padding: 10px 14px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.9rem;
+      transition: all var(--transition-fast);
+    }
+    .radio-card:hover {
+      background: #202632;
+    }
+    .radio-card.selected {
+      border-color: var(--accent-blue);
+      background: rgba(56, 189, 248, 0.12);
+      color: #ffffff;
+    }
+
+    /* Bell Config Table */
+    .bell-table-container {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .bell-edit-card {
+      background: #181e29;
+      border: 1px solid var(--border-subtle);
+      border-radius: 10px;
+      padding: 12px 16px;
+      display: grid;
+      grid-template-columns: auto 1fr auto auto auto;
+      align-items: center;
+      gap: 12px;
+      transition: all var(--transition-fast);
+    }
+    .bell-edit-card:hover {
+      border-color: rgba(255, 255, 255, 0.25);
+    }
+
+    .bell-drag-handle {
+      color: var(--text-muted);
+      font-size: 1.1rem;
+    }
+
+    .time-input-group {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .time-mini-input {
+      width: 54px;
+      text-align: center;
+      background: #11151d;
+      border: 1px solid var(--border-subtle);
+      border-radius: 6px;
+      color: #ffffff;
+      font-family: var(--font-mono);
+      font-size: 1rem;
+      padding: 6px 4px;
+    }
+
+    .ring-count-select {
+      background: #11151d;
+      border: 1px solid var(--border-subtle);
+      border-radius: 6px;
+      color: #ffffff;
+      font-size: 0.9rem;
+      padding: 6px 8px;
+    }
+
+    .btn-icon-danger {
+      background: transparent;
+      border: none;
+      color: #ef4444;
+      cursor: pointer;
+      padding: 6px;
+      border-radius: 6px;
+      transition: background var(--transition-fast);
+    }
+    .btn-icon-danger:hover {
+      background: rgba(239, 68, 68, 0.15);
+    }
+
+    .btn-icon-test {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid var(--border-subtle);
+      color: #ffffff;
+      cursor: pointer;
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      transition: all var(--transition-fast);
+    }
+    .btn-icon-test:hover {
+      background: rgba(255, 255, 255, 0.18);
+    }
+
+    .add-bell-btn {
+      background: rgba(56, 189, 248, 0.08);
+      border: 1px dashed var(--accent-blue);
+      color: var(--accent-blue);
+      padding: 10px;
+      border-radius: 8px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      font-weight: 600;
+      font-size: 0.9rem;
+      transition: all var(--transition-fast);
+    }
+    .add-bell-btn:hover {
+      background: rgba(56, 189, 248, 0.16);
+      transform: translateY(-1px);
+    }
+
+    .modal-footer {
+      padding: 16px 24px;
+      border-top: 1px solid var(--border-subtle);
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    /* Shortcuts Cheatsheet footer info */
+    .shortcuts-bar {
+      display: flex;
+      justify-content: center;
+      gap: 20px;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      padding: 4px 16px 8px;
+      opacity: 0.6;
+      transition: opacity var(--transition-fast);
+      flex-shrink: 0;
+    }
+    .shortcuts-bar:hover {
+      opacity: 1;
+    }
+    .kbd-key {
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--text-secondary);
+    }
+
+    /* Mobile / Responsive Adjustments */
+    @media (max-width: 640px) {
+      .header-bar {
+        padding: 8px 12px;
+      }
+      .app-title span {
+        display: none;
+      }
+      .bottom-control-bar {
+        gap: 10px;
+        padding: 12px 12px 20px;
+      }
+      .btn {
+        padding: 12px 16px;
+        font-size: 0.95rem;
+        min-width: 95px;
+      }
+      .bell-milestone-row {
+        grid-template-columns: 85px 80px 1fr;
+        padding: 6px 12px;
+      }
+      .bell-edit-card {
+        grid-template-columns: 1fr auto;
+        gap: 8px;
+      }
+      .shortcuts-bar {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="app-container" id="app">
+    <!-- Visual Screen Flash on Bell -->
+    <div class="screen-flash-overlay" id="screenFlash"></div>
+
+    <!-- Header Navigation -->
+    <header class="header-bar">
+      <div class="app-title-area">
+        <div class="app-title">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 2C6.486 2 2 6.486 2 12s4.486 10 10 10 10-4.486 10-10S17.514 2 12 2zm0 18c-4.411 0-8-3.589-8-8s3.589-8 8-8 8 3.589 8 8-3.589 8-8 8zm1-13h-2v6l5.25 3.15.75-1.23-4-2.37V7z"/>
+          </svg>
+          <span>発表タイマー</span>
+        </div>
+        <span class="app-badge" id="presetBadge">30分一般発表</span>
+      </div>
+
+      <div class="header-controls">
+        <!-- Preset Quick Selector -->
+        <select class="select-input" id="quickPresetSelect" style="width: auto; padding: 6px 10px; font-size: 0.85rem;" title="プリセット切替">
+          <option value="oral30" selected>一般発表 (30分)</option>
+          <option value="oral15">一般発表 (15分)</option>
+          <option value="short10">ショート (10分)</option>
+          <option value="lt5">LT (5分)</option>
+          <option value="keynote30">招待講演 (30分)</option>
+          <option value="test1">1分テスト</option>
+          <option value="custom">カスタム設定</option>
+        </select>
+
+        <!-- Dynamic Font Size Quick Zoom (A- / A+) -->
+        <div class="font-zoom-control" style="display:flex; align-items:center; background:rgba(255,255,255,0.08); border:1px solid var(--border-subtle); border-radius:8px; backdrop-filter:blur(8px); overflow:hidden;" title="文字サイズ拡大/縮小 (+/-)">
+          <button class="zoom-btn" id="headerZoomOutBtn" style="background:transparent; border:none; color:var(--text-primary); padding:6px 9px; cursor:pointer; font-weight:700; font-size:0.85rem; transition:background 0.15s;" title="文字サイズ縮小 (-)">A-</button>
+          <span id="headerZoomBadge" style="font-size:0.75rem; font-family:var(--font-mono); color:var(--accent-blue); padding:0 3px; min-width:40px; text-align:center; user-select:none;">125%</span>
+          <button class="zoom-btn" id="headerZoomInBtn" style="background:transparent; border:none; color:var(--text-primary); padding:6px 9px; cursor:pointer; font-weight:700; font-size:0.85rem; transition:background 0.15s;" title="文字サイズ拡大 (+)">A+</button>
+        </div>
+
+        <!-- Sound Mute Toggle -->
+        <button class="icon-btn" id="muteBtn" title="ミュート切替 (M)">
+          <svg id="muteIconUnmuted" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+          <svg id="muteIconMuted" viewBox="0 0 24 24" style="display:none;"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>
+        </button>
+
+        <!-- Settings Button -->
+        <button class="icon-btn" id="openSettingsBtn" title="設定・ベル編集 (S)">
+          <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+          <span>設定</span>
+        </button>
+
+        <!-- Fullscreen Button -->
+        <button class="icon-btn" id="fullscreenBtn" title="全画面表示 (F)">
+          <svg id="fsIconExpand" viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+          <svg id="fsIconCompress" viewBox="0 0 24 24" style="display:none;"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Presentation Stage -->
+    <main class="timer-stage">
+      
+      <!-- Big Digits Display -->
+      <div class="timer-display-wrap">
+        <div class="timer-mode-tag" id="timerStatusTag">
+          <span class="status-dot" id="statusDot"></span>
+          <span id="timerStatusText">READY</span>
+        </div>
+
+        <div class="timer-digits" id="timerDigits" data-font="ud-kyokasho">
+          <span class="digit-slot">0</span><span class="digit-slot">0</span><span class="digit-colon">:</span><span class="digit-slot">0</span><span class="digit-slot">0</span>
+        </div>
+      </div>
+
+      <!-- Prominent Progress Timeline Gauge -->
+      <div class="timeline-container" id="timelineContainer">
+        <div class="timeline-bar" id="timelineBar"></div>
+        <div id="timelineMarkers"></div>
+      </div>
+
+      <!-- Dynamic Bell Milestones List (Fixed Grid Alignment) -->
+      <div class="bell-milestones-card" id="bellMilestonesCard">
+        <!-- Rendered dynamically by JS -->
+      </div>
+
+    </main>
+
+    <!-- Bottom Controls Bar -->
+    <footer class="bottom-control-bar">
+      <!-- Start / Pause Button -->
+      <button class="btn btn-start" id="startBtn">
+        <svg id="startIconPlay" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M8 5v14l11-7z"/>
+        </svg>
+        <svg id="startIconPause" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style="display:none;">
+          <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+        </svg>
+        <span id="startBtnText">Start</span>
+      </button>
+
+      <!-- Manual Bell Strike Button -->
+      <button class="btn btn-bell" id="manualBellBtn" title="手動でベルを鳴らす (B)">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 2c-.55 0-1 .45-1 1v1.07C7.38 4.56 4.5 7.94 4.5 12v4.5L3 18v1h18v-1l-1.5-1.5V12c0-4.06-2.88-7.44-6.5-7.93V3c0-.55-.45-1-1-1zm0 20c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2z"/>
+        </svg>
+        <span>鳴らす</span>
+      </button>
+
+      <!-- Reset Button -->
+      <button class="btn btn-reset" id="resetBtn" title="タイマーをリセット (R)">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
+        </svg>
+        <span>Reset</span>
+      </button>
+    </footer>
+
+    <!-- Keyboard Shortcuts Hint -->
+    <div class="shortcuts-bar">
+      <span><span class="kbd-key">Space</span> スタート/停止</span>
+      <span><span class="kbd-key">R</span> リセット</span>
+      <span><span class="kbd-key">B</span> ベル打鐘</span>
+      <span><span class="kbd-key">+/-</span> 文字サイズ調整</span>
+      <span><span class="kbd-key">F</span> 全画面</span>
+      <span><span class="kbd-key">S</span> 設定</span>
+      <span><span class="kbd-key">M</span> 消音</span>
+    </div>
+  </div>
+
+  <!-- ==========================================================================
+       Settings & Bell Customization Modal
+       ========================================================================== -->
+  <div class="modal-backdrop" id="settingsModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
+          </svg>
+          タイマー・ベル設定
+        </h2>
+        <button class="modal-close-btn" id="closeSettingsBtn" title="閉じる">&times;</button>
+      </div>
+
+      <div class="modal-body">
+        
+        <!-- Preset Selection -->
+        <div class="setting-section">
+          <div class="setting-title">
+            <span>プリセット選択</span>
+          </div>
+          <select class="select-input" id="presetSelectModal">
+            <option value="oral30" selected>一般口頭発表 (30分: 15分予鈴[1鈴] / 20分発表終了[2鈴] / 30分質疑応答終了[3鈴])</option>
+            <option value="oral15">一般口頭発表 (15分: 10分予鈴[1鈴] / 12分発表終了[2鈴] / 15分質疑終了[3鈴])</option>
+            <option value="short10">ショート発表 (10分: 7分予鈴[1鈴] / 8分発表終了[2鈴] / 10分質疑終了[3鈴])</option>
+            <option value="lt5">ライトニングトーク (5分: 3分予鈴[1鈴] / 4分発表終了[2鈴] / 5分質疑終了[3鈴])</option>
+            <option value="keynote30">招待講演・基調講演 (30分: 20分予鈴[1鈴] / 25分発表終了[2鈴] / 30分質疑終了[3鈴])</option>
+            <option value="test1">1分動作テスト (29秒[1鈴] / 50秒[2鈴] / 1分[3鈴])</option>
+            <option value="custom">カスタム設定</option>
+          </select>
+        </div>
+
+        <!-- Timer Mode -->
+        <div class="setting-section">
+          <div class="setting-title">
+            <span>タイマー表示方式</span>
+          </div>
+          <div class="radio-grid">
+            <div class="radio-card" id="modeCountUpCard" onclick="setTimerMode('countup')">
+              <input type="radio" name="timerMode" id="modeCountUp" value="countup" checked>
+              <label for="modeCountUp"><strong>経過時間 (カウントアップ)</strong><br><small style="color:var(--text-muted)">00:00から進行 (学会標準)</small></label>
+            </div>
+            <div class="radio-card" id="modeCountDownCard" onclick="setTimerMode('countdown')">
+              <input type="radio" name="timerMode" id="modeCountDown" value="countdown">
+              <label for="modeCountDown"><strong>残り時間 (カウントダウン)</strong><br><small style="color:var(--text-muted)">合計時間から00:00へ減少</small></label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bell Configuration (Dynamic Add/Remove) -->
+        <div class="setting-section">
+          <div class="setting-title">
+            <span>ベル通知タイミング設定</span>
+            <small style="color:var(--text-muted); font-weight:normal;">ベルの追加・削除・回数変更が可能</small>
+          </div>
+
+          <div class="bell-table-container" id="bellEditList">
+            <!-- Dynamic bell edit cards inserted here -->
+          </div>
+
+          <button class="add-bell-btn" id="addBellBtn">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+            </svg>
+            <span>＋ ベル通知を追加</span>
+          </button>
+        </div>
+
+        <!-- Sound & Visual & Size Options -->
+        <div class="setting-section">
+          <div class="setting-title">
+            <span>演出・文字サイズ・サウンド設定</span>
+          </div>
+
+          <!-- Dynamic Font Size Slider & Presets -->
+          <div class="form-group">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <label class="form-label" for="fontSizeSlider">時間文字サイズ: <span id="fontSizeValueLabel" style="color:var(--accent-blue); font-weight:700;">125%</span></label>
+              <div style="display:flex; gap:6px;">
+                <button type="button" class="btn-icon-test" onclick="setFontScale(1.0)" style="padding:2px 8px; font-size:0.75rem;">100% (標準)</button>
+                <button type="button" class="btn-icon-test" onclick="setFontScale(1.25)" style="padding:2px 8px; font-size:0.75rem;">125% (大)</button>
+                <button type="button" class="btn-icon-test" onclick="setFontScale(1.5)" style="padding:2px 8px; font-size:0.75rem;">150% (特大)</button>
+                <button type="button" class="btn-icon-test" onclick="setFontScale(1.8)" style="padding:2px 8px; font-size:0.75rem;">180% (最大)</button>
+              </div>
+            </div>
+            <input type="range" id="fontSizeSlider" min="70" max="200" step="5" value="125" style="margin-top: 10px; width: 100%;">
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px;">
+            <div class="form-group">
+              <label class="form-label" for="digitFontSelect">数字フォント</label>
+              <select class="select-input" id="digitFontSelect">
+                <option value="ud-kyokasho">① UDデジタル教科書体 (高視認性)</option>
+                <option value="ud-gothic">② BIZ UDゴシック (UD角ゴシック)</option>
+                <option value="sans">③ モダン・サンセリフ (標準)</option>
+                <option value="rounded">④ ラウンド・ソフト (角丸)</option>
+                <option value="ud-mincho">⑤ BIZ UD明朝 (UD明朝体)</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <label class="form-label" for="soundToneSelect">ベル音色タイプ</label>
+                <button class="btn-icon-test" id="testToneBtn" style="padding: 2px 8px; font-size: 0.75rem;" title="選択した音色を試聴">
+                  試聴
+                </button>
+              </div>
+              <select class="select-input" id="soundToneSelect">
+                <option value="deskBell">① リアル卓上呼び鈴 (金属音)</option>
+                <option value="handBell">② ハンドベル (真鍮音)</option>
+                <option value="chimeChord">③ 2音チャイム (ピンポン)</option>
+                <option value="crystalChime">④ クリスタルチャイム (高音)</option>
+                <option value="deepBowl">⑤ シンギングボウル (重厚)</option>
+                <option value="digitalBeep">⑥ 電子サイン音 (デジタル)</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="bellVolumeSlider">音量: <span id="volumeValueLabel">85%</span></label>
+              <input type="range" id="bellVolumeSlider" min="0" max="100" value="85" style="margin-top: 10px; width: 100%;">
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 16px; margin-top: 8px;">
+            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:0.9rem;">
+              <input type="checkbox" id="screenFlashToggle" checked>
+              <span>ベル打鐘時に画面を一瞬白くフラッシュさせる</span>
+            </label>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-reset" id="cancelSettingsBtn" style="min-width: 90px; padding: 10px 18px;">閉じる</button>
+        <button class="btn btn-start" id="saveSettingsBtn" style="min-width: 110px; padding: 10px 20px;">保存して適用</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==========================================================================
+       Application Logic & High-Quality Web Audio API Engine
+       ========================================================================== -->
+  <script>
+    /* --------------------------------------------------------------------------
+       1. Application State & Presets
+       -------------------------------------------------------------------------- */
+    const PRESETS = {
+      oral15: {
+        name: "15分口頭発表",
+        totalSeconds: 15 * 60,
+        mode: "countup",
+        bells: [
+          { timeSeconds: 10 * 60, rings: 1, label: "予鈴 (10分)", color: "#facc15" },
+          { timeSeconds: 12 * 60, rings: 2, label: "発表終了 (12分)", color: "#f43f5e" },
+          { timeSeconds: 15 * 60, rings: 3, label: "質疑・全体終了 (15分)", color: "#ef4444" }
+        ]
+      },
+      oral30: {
+        name: "30分一般発表",
+        totalSeconds: 30 * 60,
+        mode: "countup",
+        bells: [
+          { timeSeconds: 15 * 60, rings: 1, label: "予鈴 (15分)", color: "#facc15" },
+          { timeSeconds: 20 * 60, rings: 2, label: "発表終了 (20分)", color: "#f43f5e" },
+          { timeSeconds: 30 * 60, rings: 3, label: "質疑応答終了 (30分)", color: "#ef4444" }
+        ]
+      },
+      short10: {
+        name: "10分ショート発表",
+        totalSeconds: 10 * 60,
+        mode: "countup",
+        bells: [
+          { timeSeconds: 7 * 60, rings: 1, label: "予鈴 (7分)", color: "#facc15" },
+          { timeSeconds: 8 * 60, rings: 2, label: "発表終了 (8分)", color: "#f43f5e" },
+          { timeSeconds: 10 * 60, rings: 3, label: "質疑終了 (10分)", color: "#ef4444" }
+        ]
+      },
+      lt5: {
+        name: "5分ライトニングトーク",
+        totalSeconds: 5 * 60,
+        mode: "countup",
+        bells: [
+          { timeSeconds: 3 * 60, rings: 1, label: "予鈴 (3分)", color: "#facc15" },
+          { timeSeconds: 4 * 60, rings: 2, label: "発表終了 (4分)", color: "#f43f5e" },
+          { timeSeconds: 5 * 60, rings: 3, label: "質疑終了 (5分)", color: "#ef4444" }
+        ]
+      },
+      keynote30: {
+        name: "30分招待講演",
+        totalSeconds: 30 * 60,
+        mode: "countup",
+        bells: [
+          { timeSeconds: 20 * 60, rings: 1, label: "予鈴 (20分)", color: "#facc15" },
+          { timeSeconds: 25 * 60, rings: 2, label: "発表終了 (25分)", color: "#f43f5e" },
+          { timeSeconds: 30 * 60, rings: 3, label: "質疑終了 (30分)", color: "#ef4444" }
+        ]
+      },
+      test1: {
+        name: "1分動作テスト",
+        totalSeconds: 60,
+        mode: "countup",
+        bells: [
+          { timeSeconds: 29, rings: 1, label: "予鈴 (29秒)", color: "#facc15" },
+          { timeSeconds: 50, rings: 2, label: "発表終了 (50秒)", color: "#f43f5e" },
+          { timeSeconds: 60, rings: 3, label: "質疑終了 (1分)", color: "#ef4444" }
+        ]
+      }
+    };
+
+    const state = {
+      presetKey: "oral30",
+      mode: "countup", // 'countup' or 'countdown'
+      totalSeconds: 30 * 60,
+      bells: JSON.parse(JSON.stringify(PRESETS.oral30.bells)),
+      
+      // Runtime Timer
+      isRunning: false,
+      elapsedMs: 0,
+      startTimestamp: 0,
+      pausedAccumulatedMs: 0,
+      lastTickSec: 0,
+      triggeredBellIndexes: new Set(),
+      
+      // Audio & Visual & Styling Options
+      isMuted: false,
+      volume: 0.85,
+      soundTone: "deskBell",
+      screenFlash: true,
+      digitScale: 1.25,
+      digitFont: "ud-kyokasho",
+      wakeLock: null
+    };
+
+    // Load saved settings if present in localStorage
+    function loadSavedState() {
+      try {
+        const saved = localStorage.getItem("presentation_timer_config_v2");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed.bells && Array.isArray(parsed.bells)) {
+            state.bells = parsed.bells;
+            state.presetKey = parsed.presetKey || "oral30";
+            state.mode = parsed.mode || "countup";
+            state.totalSeconds = parsed.totalSeconds || 1800;
+            state.volume = parsed.volume !== undefined ? parsed.volume : 0.85;
+            state.soundTone = parsed.soundTone || "deskBell";
+            state.screenFlash = parsed.screenFlash !== undefined ? parsed.screenFlash : true;
+            state.digitScale = parsed.digitScale !== undefined ? parsed.digitScale : 1.25;
+            state.digitFont = parsed.digitFont || "ud-kyokasho";
+          }
+        }
+      } catch (e) {
+        console.warn("Could not load localStorage config:", e);
+      }
+    }
+
+    function saveState() {
+      try {
+        const payload = {
+          presetKey: state.presetKey,
+          mode: state.mode,
+          totalSeconds: state.totalSeconds,
+          bells: state.bells,
+          volume: state.volume,
+          soundTone: state.soundTone,
+          screenFlash: state.screenFlash,
+          digitScale: state.digitScale,
+          digitFont: state.digitFont
+        };
+        localStorage.setItem("presentation_timer_config_v2", JSON.stringify(payload));
+      } catch (e) {
+        console.warn("Could not save to localStorage:", e);
+      }
+    }
+
+    function setFontFamily(fontKey, shouldSave = true) {
+      state.digitFont = fontKey;
+      const digits = document.getElementById("timerDigits");
+      if (digits) {
+        digits.setAttribute("data-font", fontKey);
+      }
+      const select = document.getElementById("digitFontSelect");
+      if (select) {
+        select.value = fontKey;
+      }
+      if (shouldSave) {
+        saveState();
+      }
+    }
+
+    function setFontScale(scale, shouldSave = true) {
+      const clamped = Math.min(2.0, Math.max(0.7, Math.round(scale * 100) / 100));
+      state.digitScale = clamped;
+      document.documentElement.style.setProperty('--digit-scale', clamped);
+      
+      const pctStr = `${Math.round(clamped * 100)}%`;
+      const headerBadge = document.getElementById("headerZoomBadge");
+      if (headerBadge) headerBadge.textContent = pctStr;
+      
+      const sliderLabel = document.getElementById("fontSizeValueLabel");
+      if (sliderLabel) sliderLabel.textContent = pctStr;
+      
+      const slider = document.getElementById("fontSizeSlider");
+      if (slider) slider.value = Math.round(clamped * 100);
+      
+      if (shouldSave) {
+        saveState();
+      }
+    }
+
+    /* --------------------------------------------------------------------------
+       2. Web Audio API Acoustic Bell Synthesizer (Realistic Sound Synthesis)
+       -------------------------------------------------------------------------- */
+    let audioCtx = null;
+
+    function getAudioContext() {
+      if (!audioCtx) {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        audioCtx = new AudioContextClass();
+      }
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+      return audioCtx;
+    }
+
+    /**
+     * Synthesize realistic physical desk bell strike and alternative tones
+     */
+    function playSingleBellTone(toneType = state.soundTone, volumeMultiplier = 1.0) {
+      if (state.isMuted || state.volume <= 0) return;
+      
+      const ctx = getAudioContext();
+      const now = ctx.currentTime;
+      const masterGain = ctx.createGain();
+      masterGain.gain.setValueAtTime(state.volume * volumeMultiplier, now);
+      masterGain.connect(ctx.destination);
+
+      // 1. Realistic Japanese Academic Desk Bell (卓上呼び鈴 / カウンターベル)
+      if (toneType === 'deskBell') {
+        // Physical steel bell cup resonance modes (fundamental ~2600Hz + beating + metal strike)
+        const fundamental = 2620; // High crisp C7/D7 bell
+        const partials = [
+          { f: fundamental, g: 0.7, d: 3.2 },          // Main bell ring
+          { f: fundamental + 4.5, g: 0.55, d: 2.9 },    // Beating shimmer (natural flutter)
+          { f: fundamental * 2.02, g: 0.22, d: 1.5 },   // 2nd partial mode
+          { f: fundamental * 3.15, g: 0.14, d: 0.8 },   // High shimmer
+          { f: fundamental * 4.38, g: 0.08, d: 0.4 },   // Sparkle overtone
+          { f: fundamental * 0.505, g: 0.15, d: 2.4 }   // Sub-harmonic dome body resonance
+        ];
+
+        // Metallic Hammer Strike Impulse (Noise transient burst)
+        try {
+          const bufferSize = Math.floor(ctx.sampleRate * 0.025); // 25ms strike click
+          const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+          const data = buffer.getChannelData(0);
+          for (let i = 0; i < bufferSize; i++) {
+            data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.2));
+          }
+          const noiseSource = ctx.createBufferSource();
+          noiseSource.buffer = buffer;
+          
+          const noiseFilter = ctx.createBiquadFilter();
+          noiseFilter.type = 'bandpass';
+          noiseFilter.frequency.setValueAtTime(4500, now);
+          noiseFilter.Q.setValueAtTime(4.0, now);
+          
+          const noiseGain = ctx.createGain();
+          noiseGain.gain.setValueAtTime(0.35, now);
+          noiseGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.025);
+          
+          noiseSource.connect(noiseFilter);
+          noiseFilter.connect(noiseGain);
+          noiseGain.connect(masterGain);
+          noiseSource.start(now);
+        } catch (e) {}
+
+        partials.forEach(p => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(p.f, now);
+
+          // Instant physical attack & smooth exponential decay
+          gain.gain.setValueAtTime(p.g, now);
+          gain.gain.exponentialRampToValueAtTime(0.00005, now + p.d);
+
+          osc.connect(gain);
+          gain.connect(masterGain);
+          osc.start(now);
+          osc.stop(now + p.d);
+        });
+        return;
+      }
+
+      // 2. Handbell (優雅な真鍮ハンドベル)
+      if (toneType === 'handBell') {
+        const fundamental = 1760; // A6
+        const partials = [
+          { f: fundamental, g: 0.8, d: 3.5 },
+          { f: fundamental + 2, g: 0.4, d: 3.0 },
+          { f: fundamental * 2.76, g: 0.3, d: 2.0 },
+          { f: fundamental * 4.05, g: 0.15, d: 1.0 },
+          { f: fundamental * 0.5, g: 0.25, d: 2.8 }
+        ];
+        partials.forEach(p => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(p.f, now);
+          gain.gain.setValueAtTime(p.g, now);
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + p.d);
+          osc.connect(gain);
+          gain.connect(masterGain);
+          osc.start(now);
+          osc.stop(now + p.d);
+        });
+        return;
+      }
+
+      // 3. 2-Tone Chime (ピン・ポーン / 予鈴チャイム)
+      if (toneType === 'chimeChord') {
+        // High tone (G5: 784Hz) then Low tone (E5: 659Hz)
+        const notes = [
+          { f: 880, start: 0, d: 1.6 },      // A5
+          { f: 659.25, start: 0.28, d: 2.2 } // E5
+        ];
+        notes.forEach(note => {
+          const noteTime = now + note.start;
+          [1.0, 2.0, 3.0].forEach((harmonic, hIdx) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(note.f * harmonic, noteTime);
+            gain.gain.setValueAtTime(0.5 / (hIdx + 1), noteTime);
+            gain.gain.exponentialRampToValueAtTime(0.0001, noteTime + note.d / (hIdx + 1));
+            osc.connect(gain);
+            gain.connect(masterGain);
+            osc.start(noteTime);
+            osc.stop(noteTime + note.d);
+          });
+        });
+        return;
+      }
+
+      // 4. Crystal Chime (高音クリスタル)
+      if (toneType === 'crystalChime') {
+        const freqs = [2093, 3135, 4186, 6271];
+        const decays = [2.2, 1.6, 1.1, 0.7];
+        freqs.forEach((freq, i) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(freq, now);
+          gain.gain.setValueAtTime(0.35 / (i + 1), now);
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + decays[i]);
+          osc.connect(gain);
+          gain.connect(masterGain);
+          osc.start(now);
+          osc.stop(now + decays[i]);
+        });
+        return;
+      }
+
+      // 5. Deep Singing Bowl / Gong (シンギングボウル・銅鑼)
+      if (toneType === 'deepBowl') {
+        const freqs = [440, 882, 1326, 1772];
+        const decays = [4.0, 3.2, 2.2, 1.5];
+        freqs.forEach((freq, i) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(freq, now);
+          gain.gain.setValueAtTime(0.45 / (i + 1), now);
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + decays[i]);
+          osc.connect(gain);
+          gain.connect(masterGain);
+          osc.start(now);
+          osc.stop(now + decays[i]);
+        });
+        return;
+      }
+
+      // 6. Digital Beep (電子サイン音)
+      if (toneType === 'digitalBeep') {
+        const freqs = [1046.5, 1318.5, 1567.98]; // C6 - E6 - G6 arpeggio
+        freqs.forEach((f, idx) => {
+          const t = now + idx * 0.08;
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(f, t);
+          gain.gain.setValueAtTime(0.4, t);
+          gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.35);
+          osc.connect(gain);
+          gain.connect(masterGain);
+          osc.start(t);
+          osc.stop(t + 0.35);
+        });
+        return;
+      }
+    }
+
+    /**
+     * Play multi-ring sequence (e.g. 1 ring, 2 rings, 3 rings)
+     */
+    function triggerBellSequence(ringCount = 1, onFinished = null) {
+      // Trigger visual pulse
+      const timerDigits = document.getElementById("timerDigits");
+      timerDigits.classList.remove("bell-pulse");
+      void timerDigits.offsetWidth; // trigger reflow
+      timerDigits.classList.add("bell-pulse");
+
+      if (state.screenFlash) {
+        flashScreen();
+      }
+
+      const intervalMs = state.soundTone === 'chimeChord' ? 650 : 380;
+      for (let i = 0; i < ringCount; i++) {
+        setTimeout(() => {
+          playSingleBellTone(state.soundTone, 1.0);
+        }, i * intervalMs);
+      }
+
+      if (onFinished) {
+        setTimeout(onFinished, ringCount * intervalMs + 200);
+      }
+    }
+
+    function flashScreen() {
+      const flash = document.getElementById("screenFlash");
+      flash.classList.add("flashing");
+      setTimeout(() => {
+        flash.classList.remove("flashing");
+      }, 120);
+    }
+
+    /* --------------------------------------------------------------------------
+       3. Timer Core & Precision Timekeeping
+       -------------------------------------------------------------------------- */
+    let animationFrameId = null;
+
+    function formatTime(totalSec) {
+      const isNeg = totalSec < 0;
+      const absSec = Math.abs(totalSec);
+      const m = Math.floor(absSec / 60);
+      const s = Math.floor(absSec % 60);
+      const mm = String(m).padStart(2, '0');
+      const ss = String(s).padStart(2, '0');
+      return (isNeg ? "-" : "") + `${mm}:${ss}`;
+    }
+
+    /**
+     * Render digits inside jitter-free fixed-width slots
+     */
+    function renderDigitsHTML(totalSec) {
+      const isNeg = totalSec < 0;
+      const absSec = Math.abs(totalSec);
+      const m = Math.floor(absSec / 60);
+      const s = Math.floor(absSec % 60);
+      const mm = String(m).padStart(2, '0');
+      const ss = String(s).padStart(2, '0');
+      
+      let html = "";
+      if (isNeg) {
+        html += `<span class="digit-sign">-</span>`;
+      }
+      html += `<span class="digit-slot">${mm[0]}</span>`;
+      html += `<span class="digit-slot">${mm[1]}</span>`;
+      html += `<span class="digit-colon">:</span>`;
+      html += `<span class="digit-slot">${ss[0]}</span>`;
+      html += `<span class="digit-slot">${ss[1]}</span>`;
+      return html;
+    }
+
+    function updateDisplay() {
+      const currentSec = Math.floor(state.elapsedMs / 1000);
+      
+      let displaySeconds = 0;
+      let isOvertime = false;
+
+      if (state.mode === 'countup') {
+        displaySeconds = currentSec;
+        if (state.totalSeconds > 0 && currentSec > state.totalSeconds) {
+          isOvertime = true;
+        }
+      } else {
+        // Countdown
+        displaySeconds = state.totalSeconds - currentSec;
+        if (displaySeconds < 0) {
+          isOvertime = true;
+        }
+      }
+
+      const timerDigits = document.getElementById("timerDigits");
+      timerDigits.innerHTML = renderDigitsHTML(displaySeconds);
+
+      if (isOvertime) {
+        timerDigits.classList.add("overtime");
+      } else {
+        timerDigits.classList.remove("overtime");
+      }
+
+      // Update Status Dot & Text
+      const statusDot = document.getElementById("statusDot");
+      const statusText = document.getElementById("timerStatusText");
+      
+      if (isOvertime) {
+        statusDot.className = "status-dot overtime";
+        statusText.textContent = "OVERTIME";
+        statusText.style.color = "var(--accent-red)";
+      } else if (state.isRunning) {
+        statusDot.className = "status-dot running";
+        statusText.textContent = state.mode === 'countup' ? "経過時間" : "残り時間";
+        statusText.style.color = "var(--accent-green)";
+      } else if (state.elapsedMs > 0) {
+        statusDot.className = "status-dot paused";
+        statusText.textContent = "PAUSED";
+        statusText.style.color = "var(--accent-yellow)";
+      } else {
+        statusDot.className = "status-dot";
+        statusText.textContent = "READY";
+        statusText.style.color = "var(--accent-blue)";
+      }
+
+      // Update Timeline Bar (Solid color switching at bell timings, initially green)
+      const timelineBar = document.getElementById("timelineBar");
+      if (state.totalSeconds > 0) {
+        const pct = Math.min(100, Math.max(0, (currentSec / state.totalSeconds) * 100));
+        timelineBar.style.width = `${pct}%`;
+
+        // Calculate phase color: initial is Green (#22c55e), then switches to bell color on each passed bell
+        let gaugeColor = "#22c55e"; // Initial green
+        for (let i = 0; i < state.bells.length; i++) {
+          if (currentSec >= state.bells[i].timeSeconds) {
+            gaugeColor = state.bells[i].color || "#facc15";
+          }
+        }
+        if (isOvertime) {
+          gaugeColor = "#ef4444";
+        }
+        timelineBar.style.backgroundColor = gaugeColor;
+        timelineBar.style.boxShadow = `0 0 14px ${gaugeColor}`;
+      }
+
+      // Check for Bell Triggers
+      checkBells(currentSec);
+
+      // Update Bell Milestones UI status
+      renderBellMilestones();
+    }
+
+    function checkBells(currentSec) {
+      if (!state.isRunning) return;
+
+      state.bells.forEach((bell, idx) => {
+        if (!state.triggeredBellIndexes.has(idx)) {
+          if (currentSec >= bell.timeSeconds) {
+            state.triggeredBellIndexes.add(idx);
+            triggerBellSequence(bell.rings);
+          }
+        }
+      });
+    }
+
+    function timerLoop() {
+      if (!state.isRunning) return;
+
+      const now = performance.now();
+      state.elapsedMs = (now - state.startTimestamp) + state.pausedAccumulatedMs;
+      
+      updateDisplay();
+      animationFrameId = requestAnimationFrame(timerLoop);
+    }
+
+    function startTimer() {
+      if (state.isRunning) return;
+      
+      getAudioContext(); // Initialize audio context on user gesture
+      requestWakeLock();
+
+      state.isRunning = true;
+      state.startTimestamp = performance.now();
+      
+      document.getElementById("startBtn").classList.add("is-running");
+      document.getElementById("startIconPlay").style.display = "none";
+      document.getElementById("startIconPause").style.display = "inline";
+      document.getElementById("startBtnText").textContent = "Pause";
+
+      animationFrameId = requestAnimationFrame(timerLoop);
+    }
+
+    function pauseTimer() {
+      if (!state.isRunning) return;
+      
+      state.isRunning = false;
+      state.pausedAccumulatedMs = state.elapsedMs;
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+      }
+
+      document.getElementById("startBtn").classList.remove("is-running");
+      document.getElementById("startIconPlay").style.display = "inline";
+      document.getElementById("startIconPause").style.display = "none";
+      document.getElementById("startBtnText").textContent = "Resume";
+
+      updateDisplay();
+      releaseWakeLock();
+    }
+
+    function toggleStartPause() {
+      if (state.isRunning) {
+        pauseTimer();
+      } else {
+        startTimer();
+      }
+    }
+
+    function resetTimer() {
+      pauseTimer();
+      state.elapsedMs = 0;
+      state.pausedAccumulatedMs = 0;
+      state.triggeredBellIndexes.clear();
+      
+      document.getElementById("startBtnText").textContent = "Start";
+      updateDisplay();
+    }
+
+    /* --------------------------------------------------------------------------
+       4. Bell Milestones & Dynamic UI Rendering (Aligned Columns Grid)
+       -------------------------------------------------------------------------- */
+    function renderBellMilestones() {
+      const container = document.getElementById("bellMilestonesCard");
+      const currentSec = Math.floor(state.elapsedMs / 1000);
+
+      // Find the next upcoming bell
+      let nextBellIndex = -1;
+      for (let i = 0; i < state.bells.length; i++) {
+        if (state.bells[i].timeSeconds > currentSec) {
+          nextBellIndex = i;
+          break;
+        }
+      }
+
+      let html = "";
+      state.bells.forEach((bell, idx) => {
+        const isPassed = currentSec >= bell.timeSeconds;
+        const isNext = idx === nextBellIndex;
+        const color = bell.color || "#facc15";
+        
+        // Generate mini bell SVGs based on ring count
+        let bellsIconsHtml = "";
+        for (let r = 0; r < bell.rings; r++) {
+          bellsIconsHtml += `
+            <svg class="bell-icon-mini" viewBox="0 0 24 24" style="color:${color};">
+              <path d="M12 2c-.55 0-1 .45-1 1v1.07C7.38 4.56 4.5 7.94 4.5 12v4.5L3 18v1h18v-1l-1.5-1.5V12c0-4.06-2.88-7.44-6.5-7.93V3c0-.55-.45-1-1-1zm0 20c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2z"/>
+            </svg>
+          `;
+        }
+
+        const rowClasses = [
+          "bell-milestone-row",
+          isPassed ? "passed" : "",
+          isNext ? "active-next" : ""
+        ].filter(Boolean).join(" ");
+
+        html += `
+          <div class="${rowClasses}">
+            <div class="bell-icons-group">
+              ${bellsIconsHtml}
+            </div>
+            <div class="bell-time-label" style="color:${color}">
+              ${formatTime(bell.timeSeconds)}
+            </div>
+            <div class="bell-custom-label">
+              ${bell.label || `${bell.rings}鈴`}
+            </div>
+          </div>
+        `;
+      });
+
+      container.innerHTML = html;
+
+      // Update markers on timeline
+      renderTimelineMarkers();
+    }
+
+    function renderTimelineMarkers() {
+      const markersContainer = document.getElementById("timelineMarkers");
+      if (!markersContainer || state.totalSeconds <= 0) return;
+
+      const currentSec = Math.floor(state.elapsedMs / 1000);
+      let html = "";
+
+      state.bells.forEach((bell) => {
+        const pct = Math.min(100, Math.max(0, (bell.timeSeconds / state.totalSeconds) * 100));
+        const isPassed = currentSec >= bell.timeSeconds;
+        html += `
+          <div class="timeline-marker ${isPassed ? 'passed' : ''}" 
+               style="left:${pct}%; background-color:${bell.color || '#facc15'}" 
+               title="${bell.label}: ${formatTime(bell.timeSeconds)}">
+          </div>
+        `;
+      });
+      markersContainer.innerHTML = html;
+    }
+
+    function previewMilestoneBell(index) {
+      if (state.bells[index]) {
+        triggerBellSequence(state.bells[index].rings);
+      }
+    }
+
+    /* --------------------------------------------------------------------------
+       5. Settings Modal & Dynamic Bell Editor
+       -------------------------------------------------------------------------- */
+    function openSettings() {
+      renderBellEditorList();
+      
+      document.getElementById("presetSelectModal").value = state.presetKey;
+      document.getElementById("soundToneSelect").value = state.soundTone;
+      document.getElementById("digitFontSelect").value = state.digitFont || "sans";
+      document.getElementById("bellVolumeSlider").value = Math.round(state.volume * 100);
+      document.getElementById("volumeValueLabel").textContent = `${Math.round(state.volume * 100)}%`;
+      document.getElementById("screenFlashToggle").checked = state.screenFlash;
+      document.getElementById("fontSizeSlider").value = Math.round(state.digitScale * 100);
+      document.getElementById("fontSizeValueLabel").textContent = `${Math.round(state.digitScale * 100)}%`;
+      
+      setTimerMode(state.mode);
+      
+      document.getElementById("settingsModal").classList.add("open");
+    }
+
+    function closeSettings() {
+      document.getElementById("settingsModal").classList.remove("open");
+    }
+
+    function setTimerMode(mode) {
+      state.mode = mode;
+      const countUpCard = document.getElementById("modeCountUpCard");
+      const countDownCard = document.getElementById("modeCountDownCard");
+      const radioUp = document.getElementById("modeCountUp");
+      const radioDown = document.getElementById("modeCountDown");
+
+      if (mode === 'countup') {
+        countUpCard.classList.add("selected");
+        countDownCard.classList.remove("selected");
+        radioUp.checked = true;
+      } else {
+        countDownCard.classList.add("selected");
+        countUpCard.classList.remove("selected");
+        radioDown.checked = true;
+      }
+      updateDisplay();
+    }
+
+    function renderBellEditorList() {
+      const list = document.getElementById("bellEditList");
+      let html = "";
+
+      state.bells.forEach((bell, idx) => {
+        const m = Math.floor(bell.timeSeconds / 60);
+        const s = Math.floor(bell.timeSeconds % 60);
+
+        html += `
+          <div class="bell-edit-card" data-index="${idx}">
+            <div class="bell-drag-handle">☰</div>
+            
+            <div style="display:flex; flex-direction:column; gap:6px;">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span style="font-size:0.85rem; color:var(--text-muted); font-weight:600;">#${idx + 1}</span>
+                <input type="text" class="text-input bell-label-input" value="${bell.label || ''}" placeholder="ラベル (例: 予鈴)" style="padding:4px 8px; font-size:0.85rem;" onchange="updateBellLabel(${idx}, this.value)">
+              </div>
+              
+              <div class="time-input-group">
+                <input type="number" min="0" max="999" class="time-mini-input" value="${m}" onchange="updateBellMinutes(${idx}, this.value)">
+                <span>分</span>
+                <input type="number" min="0" max="59" class="time-mini-input" value="${s}" onchange="updateBellSeconds(${idx}, this.value)">
+                <span>秒</span>
+              </div>
+            </div>
+
+            <div>
+              <select class="ring-count-select" onchange="updateBellRings(${idx}, this.value)">
+                <option value="1" ${bell.rings === 1 ? 'selected' : ''}>1鈴</option>
+                <option value="2" ${bell.rings === 2 ? 'selected' : ''}>2鈴</option>
+                <option value="3" ${bell.rings === 3 ? 'selected' : ''}>3鈴</option>
+                <option value="4" ${bell.rings === 4 ? 'selected' : ''}>4鈴</option>
+                <option value="5" ${bell.rings === 5 ? 'selected' : ''}>5鈴</option>
+              </select>
+            </div>
+
+            <div>
+              <input type="color" value="${bell.color || '#facc15'}" onchange="updateBellColor(${idx}, this.value)" style="width:34px; height:34px; border:none; background:transparent; cursor:pointer;">
+            </div>
+
+            <div style="display:flex; align-items:center; gap:4px;">
+              <button class="btn-icon-test" onclick="previewMilestoneBell(${idx})" title="試聴">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                <span>試聴</span>
+              </button>
+              <button class="btn-icon-danger" onclick="deleteBell(${idx})" title="このベルを削除">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+              </button>
+            </div>
+          </div>
+        `;
+      });
+
+      list.innerHTML = html;
+    }
+
+    function addBell() {
+      let nextTime = 15 * 60;
+      if (state.bells.length > 0) {
+        nextTime = state.bells[state.bells.length - 1].timeSeconds + 2 * 60;
+      }
+      const ringOptions = [1, 2, 3, 4, 5];
+      const nextRings = ringOptions[Math.min(state.bells.length, ringOptions.length - 1)];
+      const colors = ["#facc15", "#f43f5e", "#ef4444", "#38bdf8", "#22c55e", "#a855f7"];
+      const nextColor = colors[state.bells.length % colors.length];
+
+      state.bells.push({
+        timeSeconds: nextTime,
+        rings: nextRings,
+        label: `${state.bells.length + 1}鈴通知`,
+        color: nextColor
+      });
+      state.bells.sort((a, b) => a.timeSeconds - b.timeSeconds);
+      state.presetKey = "custom";
+      document.getElementById("presetBadge").textContent = "カスタム";
+      renderBellEditorList();
+      renderBellMilestones();
+    }
+
+    function deleteBell(index) {
+      if (state.bells.length <= 1) {
+        alert("ベルは最低1つ以上必要です。");
+        return;
+      }
+      state.bells.splice(index, 1);
+      state.presetKey = "custom";
+      document.getElementById("presetBadge").textContent = "カスタム";
+      renderBellEditorList();
+      renderBellMilestones();
+    }
+
+    function updateBellLabel(index, val) {
+      if (state.bells[index]) {
+        state.bells[index].label = val;
+        state.presetKey = "custom";
+      }
+    }
+    function updateBellMinutes(index, val) {
+      if (state.bells[index]) {
+        const s = state.bells[index].timeSeconds % 60;
+        state.bells[index].timeSeconds = Math.max(0, parseInt(val, 10) || 0) * 60 + s;
+        state.bells.sort((a, b) => a.timeSeconds - b.timeSeconds);
+        state.presetKey = "custom";
+        renderBellEditorList();
+        renderBellMilestones();
+      }
+    }
+    function updateBellSeconds(index, val) {
+      if (state.bells[index]) {
+        const m = Math.floor(state.bells[index].timeSeconds / 60);
+        state.bells[index].timeSeconds = m * 60 + Math.min(59, Math.max(0, parseInt(val, 10) || 0));
+        state.bells.sort((a, b) => a.timeSeconds - b.timeSeconds);
+        state.presetKey = "custom";
+        renderBellEditorList();
+        renderBellMilestones();
+      }
+    }
+    function updateBellRings(index, val) {
+      if (state.bells[index]) {
+        state.bells[index].rings = parseInt(val, 10) || 1;
+        state.presetKey = "custom";
+        renderBellMilestones();
+      }
+    }
+    function updateBellColor(index, val) {
+      if (state.bells[index]) {
+        state.bells[index].color = val;
+        state.presetKey = "custom";
+        renderBellMilestones();
+      }
+    }
+
+    function applyPreset(presetKey) {
+      if (PRESETS[presetKey]) {
+        const p = PRESETS[presetKey];
+        state.presetKey = presetKey;
+        state.totalSeconds = p.totalSeconds;
+        state.mode = p.mode;
+        state.bells = JSON.parse(JSON.stringify(p.bells));
+        document.getElementById("presetBadge").textContent = p.name;
+        document.getElementById("quickPresetSelect").value = presetKey;
+        
+        resetTimer();
+        renderBellMilestones();
+        renderBellEditorList();
+        saveState();
+      }
+    }
+
+    /* --------------------------------------------------------------------------
+       6. Fullscreen, WakeLock & Utility Handlers
+       -------------------------------------------------------------------------- */
+    function toggleFullscreen() {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(err => {
+          console.warn("Fullscreen request error:", err);
+        });
+      } else {
+        if (document.exitFullscreen) {
+          document.exitFullscreen();
+        }
+      }
+    }
+
+    document.addEventListener("fullscreenchange", () => {
+      const isFs = !!document.fullscreenElement;
+      document.getElementById("fsIconExpand").style.display = isFs ? "none" : "inline";
+      document.getElementById("fsIconCompress").style.display = isFs ? "inline" : "none";
+    });
+
+    async function requestWakeLock() {
+      if ('wakeLock' in navigator) {
+        try {
+          state.wakeLock = await navigator.wakeLock.request('screen');
+        } catch (err) {
+          console.warn("Wake lock error:", err);
+        }
+      }
+    }
+
+    function releaseWakeLock() {
+      if (state.wakeLock) {
+        state.wakeLock.release().then(() => {
+          state.wakeLock = null;
+        }).catch(() => {});
+      }
+    }
+
+    function toggleMute() {
+      state.isMuted = !state.isMuted;
+      document.getElementById("muteIconUnmuted").style.display = state.isMuted ? "none" : "inline";
+      document.getElementById("muteIconMuted").style.display = state.isMuted ? "inline" : "none";
+    }
+
+    /* --------------------------------------------------------------------------
+       7. Event Listeners & Keyboard Shortcuts
+       -------------------------------------------------------------------------- */
+    function initEventHandlers() {
+      // Start / Pause
+      document.getElementById("startBtn").addEventListener("click", toggleStartPause);
+
+      // Reset
+      document.getElementById("resetBtn").addEventListener("click", resetTimer);
+
+      // Manual Bell
+      const bellBtn = document.getElementById("manualBellBtn");
+      bellBtn.addEventListener("click", () => {
+        bellBtn.classList.remove("struck");
+        void bellBtn.offsetWidth;
+        bellBtn.classList.add("struck");
+        triggerBellSequence(1);
+      });
+
+      // Quick Preset Select in Top Bar
+      document.getElementById("quickPresetSelect").addEventListener("change", (e) => {
+        if (e.target.value === "custom") {
+          openSettings();
+        } else {
+          applyPreset(e.target.value);
+        }
+      });
+
+      // Preset Select inside Modal
+      document.getElementById("presetSelectModal").addEventListener("change", (e) => {
+        if (e.target.value !== "custom") {
+          applyPreset(e.target.value);
+        }
+      });
+
+      // Settings Modal
+      document.getElementById("openSettingsBtn").addEventListener("click", openSettings);
+      document.getElementById("closeSettingsBtn").addEventListener("click", closeSettings);
+      document.getElementById("cancelSettingsBtn").addEventListener("click", closeSettings);
+      
+      document.getElementById("saveSettingsBtn").addEventListener("click", () => {
+        state.soundTone = document.getElementById("soundToneSelect").value;
+        state.volume = parseInt(document.getElementById("bellVolumeSlider").value, 10) / 100;
+        state.screenFlash = document.getElementById("screenFlashToggle").checked;
+        
+        if (state.bells.length > 0) {
+          state.totalSeconds = state.bells[state.bells.length - 1].timeSeconds;
+        }
+        
+        saveState();
+        closeSettings();
+        updateDisplay();
+      });
+
+      // Digit Font Selection in Modal
+      document.getElementById("digitFontSelect").addEventListener("change", (e) => {
+        setFontFamily(e.target.value);
+      });
+
+      // Sound Tone Test Button in Modal
+      document.getElementById("testToneBtn").addEventListener("click", () => {
+        const tone = document.getElementById("soundToneSelect").value;
+        playSingleBellTone(tone, 1.0);
+      });
+      document.getElementById("soundToneSelect").addEventListener("change", (e) => {
+        playSingleBellTone(e.target.value, 1.0);
+      });
+
+      // Add Bell Button
+      document.getElementById("addBellBtn").addEventListener("click", addBell);
+
+      // Volume Slider
+      document.getElementById("bellVolumeSlider").addEventListener("input", (e) => {
+        document.getElementById("volumeValueLabel").textContent = `${e.target.value}%`;
+      });
+
+      // Fullscreen & Mute
+      document.getElementById("fullscreenBtn").addEventListener("click", toggleFullscreen);
+      document.getElementById("muteBtn").addEventListener("click", toggleMute);
+
+      // Header Quick Font Size Zoom Buttons
+      document.getElementById("headerZoomOutBtn").addEventListener("click", () => {
+        setFontScale(state.digitScale - 0.1);
+      });
+      document.getElementById("headerZoomInBtn").addEventListener("click", () => {
+        setFontScale(state.digitScale + 0.1);
+      });
+      document.getElementById("fontSizeSlider").addEventListener("input", (e) => {
+        setFontScale(parseInt(e.target.value, 10) / 100);
+      });
+
+      // Keyboard Shortcuts
+      window.addEventListener("keydown", (e) => {
+        if (['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
+          if (e.key === "Escape") {
+            document.activeElement.blur();
+          }
+          return;
+        }
+
+        switch (e.code) {
+          case "Space":
+            e.preventDefault();
+            toggleStartPause();
+            break;
+          case "KeyR":
+            e.preventDefault();
+            resetTimer();
+            break;
+          case "KeyB":
+            e.preventDefault();
+            bellBtn.click();
+            break;
+          case "Equal":
+          case "NumpadAdd":
+          case "Semicolon":
+            if (e.key === "+" || e.key === "=" || e.key === ";") {
+              e.preventDefault();
+              setFontScale(state.digitScale + 0.1);
+            }
+            break;
+          case "Minus":
+          case "NumpadSubtract":
+            e.preventDefault();
+            setFontScale(state.digitScale - 0.1);
+            break;
+          case "Digit0":
+          case "Numpad0":
+            if (e.ctrlKey || e.metaKey || e.altKey) {
+              e.preventDefault();
+              setFontScale(1.0);
+            }
+            break;
+          case "KeyF":
+            e.preventDefault();
+            toggleFullscreen();
+            break;
+          case "KeyS":
+            e.preventDefault();
+            const modal = document.getElementById("settingsModal");
+            if (modal.classList.contains("open")) {
+              closeSettings();
+            } else {
+              openSettings();
+            }
+            break;
+          case "KeyM":
+            e.preventDefault();
+            toggleMute();
+            break;
+          case "Escape":
+            closeSettings();
+            break;
+        }
+      });
+    }
+
+    /* --------------------------------------------------------------------------
+       8. Initialization
+       -------------------------------------------------------------------------- */
+    function init() {
+      loadSavedState();
+      setFontScale(state.digitScale, false);
+      setFontFamily(state.digitFont || "ud-kyokasho", false);
+      
+      if (PRESETS[state.presetKey]) {
+        document.getElementById("presetBadge").textContent = PRESETS[state.presetKey].name;
+        document.getElementById("quickPresetSelect").value = state.presetKey;
+      } else {
+        document.getElementById("presetBadge").textContent = "カスタム";
+        document.getElementById("quickPresetSelect").value = "custom";
+      }
+
+      initEventHandlers();
+      updateDisplay();
+      renderBellMilestones();
+    }
+
+    document.addEventListener("DOMContentLoaded", init);
+  </script>
+</body>
+</html>
